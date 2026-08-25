@@ -1,5 +1,6 @@
 package com.example.adoptions;
 
+import org.jspecify.annotations.Nullable;
 import org.springaicommunity.agent.tools.SkillsTool;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
@@ -8,11 +9,13 @@ import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.ai.vectorstore.VectorStore;
-import org.springframework.beans.factory.InitializingBean;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.data.annotation.Id;
 import org.springframework.data.repository.ListCrudRepository;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -37,6 +40,13 @@ public class AdoptionsApplication {
     }
 
     @Bean
+    QuestionAnswerAdvisor questionAnswerAdvisor(VectorStore vectorStore) {
+        return QuestionAnswerAdvisor
+                .builder(vectorStore)
+                .build();
+    }
+
+    @Bean
     Customizer<HttpSecurity> httpSecurityCustomizer() {
         return http -> http.with(mcpClientOAuth2());
     }
@@ -45,72 +55,64 @@ public class AdoptionsApplication {
 interface DogRepository extends ListCrudRepository<Dog, Integer> {
 }
 
-// look mom, no Lombok!
-record Dog(int id, String name, String description) {
+record Dog(@Id int id, String name, String description) {
 }
 
-class VectorStoreInitializer implements InitializingBean {
+//@Component
+class DogVectorStoreInitializer implements ApplicationRunner {
 
-    private final DogRepository repository;
+    private final DogRepository dogRepository;
     private final VectorStore vectorStore;
 
-    VectorStoreInitializer(DogRepository repository, VectorStore vectorStore) {
-        this.repository = repository;
+    DogVectorStoreInitializer(DogRepository dogRepository, VectorStore vectorStore) {
+        this.dogRepository = dogRepository;
         this.vectorStore = vectorStore;
     }
 
     @Override
-    public void afterPropertiesSet() throws Exception {
-
-        repository.findAll().forEach(dog -> {
-            var dogument = new Document("id: %s, name: %s, description: %s".formatted(
-                    dog.id(), dog.name(), dog.description()
-            ));
-            vectorStore.add(List.of(dogument));
+    public void run(ApplicationArguments args) throws Exception {
+        this.dogRepository.findAll().forEach(dog -> {
+            var document = new Document("id: %s, name: %s, description: %s"
+                    .formatted(dog.id(), dog.name(), dog.description()));
+            vectorStore.add(List.of(document));
         });
-
-
     }
 }
+//
+// Pooch Palace
+// DECADES of experience!
 
 @Controller
 @ResponseBody
-class DogsController {
+class AdoptionsController {
 
     private final ChatClient ai;
 
-    DogsController(ChatClient.Builder ai, VectorStore vectorStore, ToolCallbackProvider scheduler) {
-        var questionAnswerAdvisor = QuestionAnswerAdvisor
-                .builder(vectorStore)
-                .build();
-        var skills = SkillsTool
+    AdoptionsController(ToolCallbackProvider scheduler,
+                        QuestionAnswerAdvisor questionAnswerAdvisor,
+                        ChatClient.Builder ai) {
+        var skillsTool = SkillsTool
                 .builder()
                 .addSkillsResource(new ClassPathResource("/META-INF/skills"))
                 .build();
         this.ai = ai
-                .defaultTools(scheduler, skills)
-                .defaultSystem("""
-                                                You are an AI powered assistant to help people adopt a dog from the adoptions agency named Pooch Palace
-                                                with locations in Taipei, Utrecht, Seoul, Tokyo, Singapore, Paris, Mumbai, New Delhi, Barcelona, San Francisco,
-                                                and London. Information about the dogs availables will be presented below. If there is no information,
-                                                then return a polite response suggesting wes don't have any dogs available.
-                        
-                                                If somebody asks you about animals, and there's no information in the context, then feel free to source\\s
-                                                the answer from other places.
-                        
-                                                If somebody asks for a time to pick up the dog, don't ask other questions: simply provide a time by consulting\\s
-                                                the tools you have available.
-                        """)
                 .defaultAdvisors(questionAnswerAdvisor)
+                .defaultSystem("""
+                         you are an AI powered assistant to help people adopt a dog from the adoptions agency named Pooch Palace with locations in Taipei, Utrecht, Seoul, Tokyo, Singapore, Paris, Mumbai, New Delhi, Barcelona, San Francisco, and London. Information about the dogs availables will be presented below. If there is no information, then return a polite response suggesting wes don't have any dogs available. If somebody asks you about animals, and there's no information in the context, then feel free to source the answer from other places. If somebody asks for a time to pick up the dog, don't ask other questions: simply provide a time by consulting the tools you have available. If you can, remind the user about the brand name, Pooch Palace.
+                        """)
+                .defaultTools(scheduler, skillsTool)
                 .build();
     }
 
     @GetMapping("/ask")
     String ask(@RequestParam String question) {
         return this.ai
-                .prompt(question)
+                .prompt()
+                .user(question)
                 .call()
                 .content();
     }
 }
 
+record DogAdoptionSuggestion(int dogId) {
+}

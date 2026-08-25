@@ -9,7 +9,6 @@ import org.springframework.security.provisioning.JdbcUserDetailsManager;
 
 import javax.sql.DataSource;
 
-
 @SpringBootApplication
 public class AuthApplication {
 
@@ -18,13 +17,13 @@ public class AuthApplication {
     }
 
     @Bean
-    JdbcUserDetailsManager userDetailsManager(DataSource dataSource) {
+    JdbcUserDetailsManager jdbcUserDetailsManager(DataSource dataSource) {
         return new JdbcUserDetailsManager(dataSource);
     }
 
     @Bean
     Customizer<HttpSecurity> httpSecurityCustomizer() {
-        return h -> h.oauth2AuthorizationServer(Customizer.withDefaults());
+        return http -> http.oauth2AuthorizationServer(Customizer.withDefaults());
     }
 
 }
